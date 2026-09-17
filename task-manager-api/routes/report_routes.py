@@ -1,17 +1,23 @@
-from flask import Blueprint, request, jsonify
+import logging
+from datetime import timedelta
+
+from flask import Blueprint, jsonify, request
+from sqlalchemy import func
+from sqlalchemy.exc import SQLAlchemyError
+
 from database import db
+from middlewares.auth import require_admin
+from models.category import Category
 from models.task import Task
 from models.user import User
-from models.category import Category
-from datetime import datetime, timedelta
-from utils.helpers import format_date, calculate_percentage
-import json
+from utils.helpers import is_valid_color, utcnow
 
 report_bp = Blueprint('reports', __name__)
+logger = logging.getLogger(__name__)
+
 
 @report_bp.route('/reports/summary', methods=['GET'])
 def summary_report():
-
     total_tasks = Task.query.count()
     total_users = User.query.count()
     total_categories = Category.query.count()
@@ -27,22 +33,17 @@ def summary_report():
     p4 = Task.query.filter_by(priority=4).count()
     p5 = Task.query.filter_by(priority=5).count()
 
-    all_tasks = Task.query.all()
-    overdue_count = 0
     overdue_list = []
-    for t in all_tasks:
-        if t.due_date:
-            if t.due_date < datetime.utcnow():
-                if t.status != 'done' and t.status != 'cancelled':
-                    overdue_count = overdue_count + 1
-                    overdue_list.append({
-                        'id': t.id,
-                        'title': t.title,
-                        'due_date': str(t.due_date),
-                        'days_overdue': (datetime.utcnow() - t.due_date).days
-                    })
+    for t in Task.query.all():
+        if t.is_overdue():
+            overdue_list.append({
+                'id': t.id,
+                'title': t.title,
+                'due_date': str(t.due_date),
+                'days_overdue': (utcnow() - t.due_date).days
+            })
 
-    seven_days_ago = datetime.utcnow() - timedelta(days=7)
+    seven_days_ago = utcnow() - timedelta(days=7)
     recent_tasks = Task.query.filter(Task.created_at >= seven_days_ago).count()
 
     recent_done = Task.query.filter(
@@ -50,15 +51,24 @@ def summary_report():
         Task.updated_at >= seven_days_ago
     ).count()
 
-    users = User.query.all()
+    # Uma única query agregada por usuário em vez de um SELECT de tasks por
+    # usuário dentro do loop (N+1).
+    per_user_totals = dict(
+        db.session.query(Task.user_id, func.count(Task.id))
+        .group_by(Task.user_id)
+        .all()
+    )
+    per_user_done = dict(
+        db.session.query(Task.user_id, func.count(Task.id))
+        .filter(Task.status == 'done')
+        .group_by(Task.user_id)
+        .all()
+    )
+
     user_stats = []
-    for u in users:
-        user_tasks = Task.query.filter_by(user_id=u.id).all()
-        total = len(user_tasks)
-        completed = 0
-        for t in user_tasks:
-            if t.status == 'done':
-                completed = completed + 1
+    for u in User.query.all():
+        total = per_user_totals.get(u.id, 0)
+        completed = per_user_done.get(u.id, 0)
         user_stats.append({
             'user_id': u.id,
             'user_name': u.name,
@@ -68,7 +78,7 @@ def summary_report():
         })
 
     report = {
-        'generated_at': str(datetime.utcnow()),
+        'generated_at': str(utcnow()),
         'overview': {
             'total_tasks': total_tasks,
             'total_users': total_users,
@@ -88,7 +98,7 @@ def summary_report():
             'minimal': p5,
         },
         'overdue': {
-            'count': overdue_count,
+            'count': len(overdue_list),
             'tasks': overdue_list,
         },
         'recent_activity': {
@@ -100,6 +110,7 @@ def summary_report():
 
     return jsonify(report), 200
 
+
 @report_bp.route('/reports/user/<int:user_id>', methods=['GET'])
 def user_report(user_id):
     user = User.query.get(user_id)
@@ -109,30 +120,12 @@ def user_report(user_id):
     tasks = Task.query.filter_by(user_id=user_id).all()
 
     total = len(tasks)
-    done = 0
-    pending = 0
-    in_progress = 0
-    cancelled = 0
-    overdue = 0
-    high_priority = 0
-
-    for t in tasks:
-        if t.status == 'done':
-            done = done + 1
-        elif t.status == 'pending':
-            pending = pending + 1
-        elif t.status == 'in_progress':
-            in_progress = in_progress + 1
-        elif t.status == 'cancelled':
-            cancelled = cancelled + 1
-
-        if t.priority <= 2:
-            high_priority = high_priority + 1
-
-        if t.due_date:
-            if t.due_date < datetime.utcnow():
-                if t.status != 'done' and t.status != 'cancelled':
-                    overdue = overdue + 1
+    done = sum(1 for t in tasks if t.status == 'done')
+    pending = sum(1 for t in tasks if t.status == 'pending')
+    in_progress = sum(1 for t in tasks if t.status == 'in_progress')
+    cancelled = sum(1 for t in tasks if t.status == 'cancelled')
+    high_priority = sum(1 for t in tasks if t.priority <= 2)
+    overdue = sum(1 for t in tasks if t.is_overdue())
 
     report = {
         'user': {
@@ -154,17 +147,35 @@ def user_report(user_id):
 
     return jsonify(report), 200
 
+
 @report_bp.route('/categories', methods=['GET'])
 def get_categories():
-    categories = Category.query.all()
+    # Contagem de tasks por categoria em uma única query agregada, em vez de
+    # um COUNT(*) por categoria dentro do loop.
+    counts = dict(
+        db.session.query(Task.category_id, func.count(Task.id))
+        .group_by(Task.category_id)
+        .all()
+    )
+
     result = []
-    for c in categories:
+    for c in Category.query.all():
         cat_data = c.to_dict()
-        cat_data['task_count'] = Task.query.filter_by(category_id=c.id).count()
+        cat_data['task_count'] = counts.get(c.id, 0)
         result.append(cat_data)
     return jsonify(result), 200
 
+
+def _validate_category(data):
+    if 'name' in data and not data['name']:
+        return 'Nome é obrigatório'
+    if 'color' in data and data['color'] is not None and not is_valid_color(data['color']):
+        return 'Cor inválida — use o formato #RRGGBB'
+    return None
+
+
 @report_bp.route('/categories', methods=['POST'])
+@require_admin
 def create_category():
     data = request.get_json()
     if not data:
@@ -174,6 +185,10 @@ def create_category():
     if not name:
         return jsonify({'error': 'Nome é obrigatório'}), 400
 
+    error = _validate_category(data)
+    if error:
+        return jsonify({'error': error}), 400
+
     category = Category()
     category.name = name
     category.description = data.get('description', '')
@@ -182,18 +197,29 @@ def create_category():
     try:
         db.session.add(category)
         db.session.commit()
-        return jsonify(category.to_dict()), 201
-    except:
+    except SQLAlchemyError:
         db.session.rollback()
+        logger.exception("Erro ao criar categoria")
         return jsonify({'error': 'Erro ao criar categoria'}), 500
 
+    return jsonify(category.to_dict()), 201
+
+
 @report_bp.route('/categories/<int:cat_id>', methods=['PUT'])
+@require_admin
 def update_category(cat_id):
     cat = Category.query.get(cat_id)
     if not cat:
         return jsonify({'error': 'Categoria não encontrada'}), 404
 
     data = request.get_json()
+    if not data:
+        return jsonify({'error': 'Dados inválidos'}), 400
+
+    error = _validate_category(data)
+    if error:
+        return jsonify({'error': error}), 400
+
     if 'name' in data:
         cat.name = data['name']
     if 'description' in data:
@@ -203,12 +229,16 @@ def update_category(cat_id):
 
     try:
         db.session.commit()
-        return jsonify(cat.to_dict()), 200
-    except:
+    except SQLAlchemyError:
         db.session.rollback()
+        logger.exception("Erro ao atualizar categoria %s", cat_id)
         return jsonify({'error': 'Erro ao atualizar'}), 500
 
+    return jsonify(cat.to_dict()), 200
+
+
 @report_bp.route('/categories/<int:cat_id>', methods=['DELETE'])
+@require_admin
 def delete_category(cat_id):
     cat = Category.query.get(cat_id)
     if not cat:
@@ -217,7 +247,9 @@ def delete_category(cat_id):
     try:
         db.session.delete(cat)
         db.session.commit()
-        return jsonify({'message': 'Categoria deletada'}), 200
-    except:
+    except SQLAlchemyError:
         db.session.rollback()
+        logger.exception("Erro ao deletar categoria %s", cat_id)
         return jsonify({'error': 'Erro ao deletar'}), 500
+
+    return jsonify({'message': 'Categoria deletada'}), 200

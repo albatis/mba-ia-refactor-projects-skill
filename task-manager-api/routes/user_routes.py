@@ -1,28 +1,28 @@
-from flask import Blueprint, request, jsonify
+import logging
+
+from flask import Blueprint, jsonify, request
+from sqlalchemy.exc import SQLAlchemyError
+
 from database import db
-from models.user import User
+from middlewares.auth import generate_token, get_current_user_from_request, require_admin
 from models.task import Task
-from datetime import datetime
-import hashlib, json, re
+from models.user import User
+from utils.helpers import VALID_ROLES, validate_email
 
 user_bp = Blueprint('users', __name__)
+logger = logging.getLogger(__name__)
+
 
 @user_bp.route('/users', methods=['GET'])
 def get_users():
     users = User.query.all()
     result = []
     for u in users:
-        user_data = {
-            'id': u.id,
-            'name': u.name,
-            'email': u.email,
-            'role': u.role,
-            'active': u.active,
-            'created_at': str(u.created_at),
-            'task_count': len(u.tasks)
-        }
+        user_data = u.to_dict()
+        user_data['task_count'] = len(u.tasks)
         result.append(user_data)
     return jsonify(result), 200
+
 
 @user_bp.route('/users/<int:user_id>', methods=['GET'])
 def get_user(user_id):
@@ -31,13 +31,11 @@ def get_user(user_id):
         return jsonify({'error': 'Usuário não encontrado'}), 404
 
     data = user.to_dict()
-
     tasks = Task.query.filter_by(user_id=user_id).all()
-    data['tasks'] = []
-    for t in tasks:
-        data['tasks'].append(t.to_dict())
+    data['tasks'] = [t.to_dict() for t in tasks]
 
     return jsonify(data), 200
+
 
 @user_bp.route('/users', methods=['POST'])
 def create_user():
@@ -58,7 +56,7 @@ def create_user():
     if not password:
         return jsonify({'error': 'Senha é obrigatória'}), 400
 
-    if not re.match(r'^[a-zA-Z0-9+_.-]+@[a-zA-Z0-9.-]+$', email):
+    if not validate_email(email):
         return jsonify({'error': 'Email inválido'}), 400
 
     if len(password) < 4:
@@ -68,7 +66,7 @@ def create_user():
     if existing:
         return jsonify({'error': 'Email já cadastrado'}), 409
 
-    if role not in ['user', 'admin', 'manager']:
+    if role not in VALID_ROLES:
         return jsonify({'error': 'Role inválido'}), 400
 
     user = User()
@@ -80,14 +78,14 @@ def create_user():
     try:
         db.session.add(user)
         db.session.commit()
-        print(f"Usuário criado: {user.id} - {user.name}")
-
-        response_data = user.to_dict()
-        return jsonify(response_data), 201
-    except Exception as e:
+    except SQLAlchemyError:
         db.session.rollback()
-        print(f"ERRO: {str(e)}")
+        logger.exception("Erro ao criar usuário")
         return jsonify({'error': 'Erro ao criar usuário'}), 500
+
+    logger.info("Usuário criado: %s - %s", user.id, user.name)
+    return jsonify(user.to_dict()), 201
+
 
 @user_bp.route('/users/<int:user_id>', methods=['PUT'])
 def update_user(user_id):
@@ -99,11 +97,17 @@ def update_user(user_id):
     if not data:
         return jsonify({'error': 'Dados inválidos'}), 400
 
+    # Trocar role/active é uma ação administrativa: exige token de admin válido.
+    if 'role' in data or 'active' in data:
+        requester = get_current_user_from_request()
+        if not requester or not requester.is_admin():
+            return jsonify({'error': 'Requer privilégio de administrador para alterar role/active'}), 403
+
     if 'name' in data:
         user.name = data['name']
 
     if 'email' in data:
-        if not re.match(r'^[a-zA-Z0-9+_.-]+@[a-zA-Z0-9.-]+$', data['email']):
+        if not validate_email(data['email']):
             return jsonify({'error': 'Email inválido'}), 400
 
         existing = User.query.filter_by(email=data['email']).first()
@@ -117,7 +121,7 @@ def update_user(user_id):
         user.set_password(data['password'])
 
     if 'role' in data:
-        if data['role'] not in ['user', 'admin', 'manager']:
+        if data['role'] not in VALID_ROLES:
             return jsonify({'error': 'Role inválido'}), 400
         user.role = data['role']
 
@@ -126,12 +130,16 @@ def update_user(user_id):
 
     try:
         db.session.commit()
-        return jsonify(user.to_dict()), 200
-    except:
+    except SQLAlchemyError:
         db.session.rollback()
+        logger.exception("Erro ao atualizar usuário %s", user_id)
         return jsonify({'error': 'Erro ao atualizar'}), 500
 
+    return jsonify(user.to_dict()), 200
+
+
 @user_bp.route('/users/<int:user_id>', methods=['DELETE'])
+@require_admin
 def delete_user(user_id):
     user = User.query.get(user_id)
     if not user:
@@ -144,11 +152,14 @@ def delete_user(user_id):
     try:
         db.session.delete(user)
         db.session.commit()
-        print(f"Usuário deletado: {user_id}")
-        return jsonify({'message': 'Usuário deletado com sucesso'}), 200
-    except:
+    except SQLAlchemyError:
         db.session.rollback()
+        logger.exception("Erro ao deletar usuário %s", user_id)
         return jsonify({'error': 'Erro ao deletar'}), 500
+
+    logger.info("Usuário deletado: %s", user_id)
+    return jsonify({'message': 'Usuário deletado com sucesso'}), 200
+
 
 @user_bp.route('/users/<int:user_id>/tasks', methods=['GET'])
 def get_user_tasks(user_id):
@@ -159,28 +170,19 @@ def get_user_tasks(user_id):
     tasks = Task.query.filter_by(user_id=user_id).all()
     result = []
     for t in tasks:
-        task_data = {}
-        task_data['id'] = t.id
-        task_data['title'] = t.title
-        task_data['description'] = t.description
-        task_data['status'] = t.status
-        task_data['priority'] = t.priority
-        task_data['created_at'] = str(t.created_at)
-        task_data['due_date'] = str(t.due_date) if t.due_date else None
-
-        if t.due_date:
-            if t.due_date < datetime.utcnow():
-                if t.status != 'done' and t.status != 'cancelled':
-                    task_data['overdue'] = True
-                else:
-                    task_data['overdue'] = False
-            else:
-                task_data['overdue'] = False
-        else:
-            task_data['overdue'] = False
-        result.append(task_data)
+        result.append({
+            'id': t.id,
+            'title': t.title,
+            'description': t.description,
+            'status': t.status,
+            'priority': t.priority,
+            'created_at': str(t.created_at),
+            'due_date': str(t.due_date) if t.due_date else None,
+            'overdue': t.is_overdue(),
+        })
 
     return jsonify(result), 200
+
 
 @user_bp.route('/login', methods=['POST'])
 def login():
@@ -207,5 +209,5 @@ def login():
     return jsonify({
         'message': 'Login realizado com sucesso',
         'user': user.to_dict(),
-        'token': 'fake-jwt-token-' + str(user.id)
+        'token': generate_token(user.id)
     }), 200

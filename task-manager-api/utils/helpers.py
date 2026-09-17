@@ -1,10 +1,13 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import re
-import os
-import json
-import sys
-import math
-import hashlib
+
+
+def utcnow():
+    # datetime.utcnow() está deprecated desde Python 3.12; mantemos o valor
+    # "naive" (sem tzinfo) para permanecer comparável com os DateTime já
+    # armazenados no banco, que também são naive.
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
 
 def format_date(date_obj):
     if date_obj:

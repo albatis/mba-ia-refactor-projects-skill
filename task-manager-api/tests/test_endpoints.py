@@ -52,6 +52,19 @@ def call_and_log(client, logger, method, path, expected_status, **kwargs):
     return response
 
 
+def admin_auth_headers(client, request_log):
+    login = call_and_log(
+        client,
+        request_log,
+        "post",
+        "/login",
+        200,
+        json={"email": "joao@email.com", "password": "1234"},
+    )
+    token = login.get_json()["token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
 def test_root_and_health_endpoints(client, request_log):
     root = call_and_log(client, request_log, "get", "/", 200)
     assert root.get_json()["message"] == "Task Manager API"
@@ -88,6 +101,7 @@ def test_task_endpoints(client, request_log):
         },
     )
     created_id = created.get_json()["id"]
+    assert created.get_json()["overdue"] is False
     call_and_log(
         client,
         request_log,
@@ -102,6 +116,7 @@ def test_task_endpoints(client, request_log):
 def test_user_and_login_endpoints(client, request_log):
     users = call_and_log(client, request_log, "get", "/users", 200)
     user_id = users.get_json()[0]["id"]
+    assert "password" not in users.get_json()[0], "Endpoint não deve mais devolver a senha/hash do usuário"
     call_and_log(client, request_log, "get", f"/users/{user_id}", 200)
     call_and_log(client, request_log, "get", f"/users/{user_id}/tasks", 200)
 
@@ -113,7 +128,18 @@ def test_user_and_login_endpoints(client, request_log):
         200,
         json={"email": "joao@email.com", "password": "1234"},
     )
-    assert login.get_json()["token"] == f"fake-jwt-token-{user_id}"
+    body = login.get_json()
+    assert "password" not in body["user"]
+    assert body["token"] and not body["token"].startswith("fake-jwt-token-")
+
+    call_and_log(
+        client,
+        request_log,
+        "post",
+        "/login",
+        401,
+        json={"email": "joao@email.com", "password": "senha-errada"},
+    )
 
     created = call_and_log(
         client,
@@ -124,15 +150,46 @@ def test_user_and_login_endpoints(client, request_log):
         json={"name": "Usuário de teste", "email": "teste@endpoints.com", "password": "1234"},
     )
     created_id = created.get_json()["id"]
+
+    # Alterar apenas o nome não exige privilégio de admin.
     call_and_log(
         client,
         request_log,
         "put",
         f"/users/{created_id}",
         200,
-        json={"name": "Usuário atualizado", "role": "manager"},
+        json={"name": "Usuário atualizado"},
     )
-    call_and_log(client, request_log, "delete", f"/users/{created_id}", 200)
+
+    # Promover a role exige token de admin: sem header, deve ser recusado.
+    call_and_log(
+        client,
+        request_log,
+        "put",
+        f"/users/{created_id}",
+        403,
+        json={"role": "manager"},
+    )
+    call_and_log(
+        client,
+        request_log,
+        "put",
+        f"/users/{created_id}",
+        200,
+        json={"role": "manager"},
+        headers=admin_auth_headers(client, request_log),
+    )
+
+    # Excluir usuário também exige admin.
+    call_and_log(client, request_log, "delete", f"/users/{created_id}", 401)
+    call_and_log(
+        client,
+        request_log,
+        "delete",
+        f"/users/{created_id}",
+        200,
+        headers=admin_auth_headers(client, request_log),
+    )
 
 
 def test_report_and_category_endpoints(client, request_log):
@@ -145,6 +202,17 @@ def test_report_and_category_endpoints(client, request_log):
     categories = call_and_log(client, request_log, "get", "/categories", 200)
     assert len(categories.get_json()) == 4
 
+    admin_headers = admin_auth_headers(client, request_log)
+
+    # Criar categoria exige admin.
+    call_and_log(
+        client,
+        request_log,
+        "post",
+        "/categories",
+        401,
+        json={"name": "Testes", "description": "Categoria de teste", "color": "#123456"},
+    )
     created = call_and_log(
         client,
         request_log,
@@ -152,6 +220,7 @@ def test_report_and_category_endpoints(client, request_log):
         "/categories",
         201,
         json={"name": "Testes", "description": "Categoria de teste", "color": "#123456"},
+        headers=admin_headers,
     )
     created_id = created.get_json()["id"]
     call_and_log(
@@ -161,8 +230,16 @@ def test_report_and_category_endpoints(client, request_log):
         f"/categories/{created_id}",
         200,
         json={"name": "Testes atualizados"},
+        headers=admin_headers,
     )
-    call_and_log(client, request_log, "delete", f"/categories/{created_id}", 200)
+    call_and_log(
+        client,
+        request_log,
+        "delete",
+        f"/categories/{created_id}",
+        200,
+        headers=admin_headers,
+    )
 
 
 def test_seed_created_expected_records(client):
