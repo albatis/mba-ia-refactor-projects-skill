@@ -7,27 +7,20 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import app as application
-import database
-
+from src.config import database
+from src.config import settings
 
 LOG_FILE = "test-results.log"
+ADMIN_HEADERS = {"X-Admin-Key": settings.ADMIN_API_KEY}
 
 
 @pytest.fixture
 def client(tmp_path):
-    database.db_path = str(tmp_path / "test-loja.db")
-    if database.db_connection is not None:
-        database.db_connection.close()
-    database.db_connection = None
+    database.DB_PATH = str(tmp_path / "test-loja.db")
 
     application.app.config.update(TESTING=True)
     with application.app.test_client() as test_client:
-        database.get_db()
         yield test_client
-
-    if database.db_connection is not None:
-        database.db_connection.close()
-    database.db_connection = None
 
 
 @pytest.fixture(scope="session")
@@ -63,16 +56,10 @@ def test_root_health_and_admin_endpoints(client, request_log):
     health = call_and_log(client, request_log, "get", "/health", 200)
     assert health.get_json()["status"] == "ok"
 
-    query = call_and_log(
-        client,
-        request_log,
-        "post",
-        "/admin/query",
-        200,
-        json={"sql": "SELECT COUNT(*) AS total FROM produtos"},
-    )
-    assert query.get_json()["sucesso"] is True
-    call_and_log(client, request_log, "post", "/admin/reset-db", 200)
+    # Sem a chave de admin, a operação destrutiva deve ser recusada.
+    call_and_log(client, request_log, "post", "/admin/reset-db", 401)
+    # Com a chave correta, a operação é permitida.
+    call_and_log(client, request_log, "post", "/admin/reset-db", 200, headers=ADMIN_HEADERS)
 
 
 def test_product_endpoints(client, request_log):
@@ -123,7 +110,9 @@ def test_product_endpoints(client, request_log):
 
 def test_user_and_login_endpoints(client, request_log):
     users = call_and_log(client, request_log, "get", "/usuarios", 200)
-    user_id = users.get_json()["dados"][0]["id"]
+    user = users.get_json()["dados"][0]
+    user_id = user["id"]
+    assert "senha" not in user, "Endpoint não deve mais devolver a senha/hash do usuário"
     call_and_log(client, request_log, "get", f"/usuarios/{user_id}", 200)
 
     email = "endpoint-test@example.com"
@@ -143,6 +132,14 @@ def test_user_and_login_endpoints(client, request_log):
         "/login",
         200,
         json={"email": email, "senha": "senha-teste"},
+    )
+    call_and_log(
+        client,
+        request_log,
+        "post",
+        "/login",
+        401,
+        json={"email": email, "senha": "senha-errada"},
     )
 
 
@@ -172,15 +169,3 @@ def test_order_report_and_status_endpoints(client, request_log):
         json={"status": "aprovado"},
     )
     call_and_log(client, request_log, "get", "/relatorios/vendas", 200)
-
-
-def test_admin_query_error_endpoint(client, request_log):
-    response = call_and_log(
-        client,
-        request_log,
-        "post",
-        "/admin/query",
-        400,
-        json={},
-    )
-    assert response.get_json()["erro"] == "Query não informada"
