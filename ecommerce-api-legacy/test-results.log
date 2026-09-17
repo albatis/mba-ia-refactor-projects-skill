@@ -1,4 +1,6 @@
-2026-09-17T13:33:56.138Z TESTE POST /api/checkout | esperado=200 recebido=200 | SUCESSO
-2026-09-17T13:33:56.144Z TESTE POST /api/checkout | esperado=400 recebido=400 | SUCESSO
-2026-09-17T13:33:56.146Z TESTE GET /api/admin/financial-report | esperado=200 recebido=200 | SUCESSO
-2026-09-17T13:33:56.148Z TESTE DELETE /api/users/1 | esperado=200 recebido=200 | SUCESSO
+2026-09-17T17:01:35.704Z TESTE POST /api/checkout | esperado=200 recebido=200 | SUCESSO
+2026-09-17T17:01:35.771Z TESTE POST /api/checkout | esperado=400 recebido=400 | SUCESSO
+2026-09-17T17:01:35.773Z TESTE GET /api/admin/financial-report | esperado=401 recebido=401 | SUCESSO
+2026-09-17T17:01:35.775Z TESTE GET /api/admin/financial-report | esperado=200 recebido=200 | SUCESSO
+2026-09-17T17:01:35.776Z TESTE DELETE /api/users/1 | esperado=401 recebido=401 | SUCESSO
+2026-09-17T17:01:35.779Z TESTE DELETE /api/users/1 | esperado=200 recebido=200 | SUCESSO

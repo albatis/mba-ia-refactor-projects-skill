@@ -7,6 +7,7 @@ const { spawn } = require('child_process');
 const projectRoot = path.resolve(__dirname, '..');
 const logPath = path.join(projectRoot, 'test-results.log');
 const port = 3000;
+const ADMIN_KEY = process.env.ADMIN_API_KEY || 'dev-admin-key-change-me';
 
 fs.writeFileSync(logPath, '', 'utf8');
 
@@ -18,18 +19,20 @@ function writeResult(method, endpoint, expectedStatus, receivedStatus, passed) {
     );
 }
 
-function request(method, endpoint, body) {
+function request(method, endpoint, body, extraHeaders) {
     return new Promise((resolve, reject) => {
         const payload = body ? JSON.stringify(body) : null;
+        const headers = Object.assign(
+            {},
+            payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {},
+            extraHeaders || {}
+        );
         const req = http.request({
             hostname: '127.0.0.1',
             port,
             path: endpoint,
             method,
-            headers: payload ? {
-                'Content-Type': 'application/json',
-                'Content-Length': Buffer.byteLength(payload)
-            } : {}
+            headers
         }, (res) => {
             let responseBody = '';
             res.setEncoding('utf8');
@@ -42,10 +45,10 @@ function request(method, endpoint, body) {
     });
 }
 
-async function testEndpoint(method, endpoint, expectedStatus, body, assertion) {
+async function testEndpoint(method, endpoint, expectedStatus, body, assertion, extraHeaders) {
     let response;
     try {
-        response = await request(method, endpoint, body);
+        response = await request(method, endpoint, body, extraHeaders);
         const passed = response.status === expectedStatus;
         writeResult(method, endpoint, expectedStatus, response.status, passed);
         assert.strictEqual(response.status, expectedStatus, response.body);
@@ -99,18 +102,26 @@ async function run() {
             c_id: 1,
             card: '5111222233334444'
         }, (body) => {
-            assert.strictEqual(body, 'Pagamento recusado');
+            assert.deepStrictEqual(JSON.parse(body), { erro: 'Pagamento recusado' });
+        });
+
+        // Endpoints administrativos agora exigem a chave X-Admin-Key.
+        await testEndpoint('GET', '/api/admin/financial-report', 401, null, (body) => {
+            assert.match(body, /Chave de administrador/);
         });
 
         await testEndpoint('GET', '/api/admin/financial-report', 200, null, (body) => {
             const report = JSON.parse(body);
             assert.strictEqual(report.length, 2);
             assert.ok(report.some((course) => course.course === 'Docker'));
-        });
+        }, { 'X-Admin-Key': ADMIN_KEY });
+
+        await testEndpoint('DELETE', '/api/users/1', 401, null, null);
 
         await testEndpoint('DELETE', '/api/users/1', 200, null, (body) => {
-            assert.strictEqual(body, 'Usuário deletado, mas as matrículas e pagamentos ficaram sujos no banco.');
-        });
+            const parsed = JSON.parse(body);
+            assert.match(parsed.mensagem, /removido com sucesso/);
+        }, { 'X-Admin-Key': ADMIN_KEY });
     } finally {
         server.kill();
     }
@@ -118,7 +129,7 @@ async function run() {
 
 run()
     .then(() => {
-        console.log('4 testes de endpoints concluídos com sucesso.');
+        console.log('7 testes de endpoints concluídos com sucesso.');
     })
     .catch((error) => {
         console.error(`Falha nos testes: ${error.message}`);
