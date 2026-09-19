@@ -552,8 +552,8 @@ Três decisões concretas:
 |---|---|---|---|---|---|---|
 | 1 — code-smells-project | Python/Flask | 16 | 5 | 3 | 4 | 4 |
 | 2 — ecommerce-api-legacy | Node/Express | 12 | 4 | 4 | 2 | 2 |
-| 3 — task-manager-api | Python/Flask (parcial) | 15 | 3 | 4 | 4 | 4 |
-| **Total** | | **43** | **12** | **11** | **10** | **10** |
+| 3 — task-manager-api | Python/Flask (parcial) | 14 | 3 | 4 | 3 | 4 |
+| **Total** | | **42** | **12** | **11** | **9** | **10** |
 
 Relatórios completos (Fase 1 + Fase 2 + Fase 3) em [`reports/audit-project-1.md`](reports/audit-project-1.md), [`reports/audit-project-2.md`](reports/audit-project-2.md) e [`reports/audit-project-3.md`](reports/audit-project-3.md).
 
@@ -575,8 +575,9 @@ Depois: src/{app.js,config,models,services,controllers,routes,middlewares}/
 ```
 Antes: models/, routes/, services/, utils/ (camadas nominais, mas rotas acessando
        SQLAlchemy direto, services/utils mortos, regra duplicada 5x)
-Depois: mesma árvore de diretórios + config/ e middlewares/ novos; rotas conectadas
-        aos models/services/utils que já existiam
+Depois: mesma árvore de diretórios + config/, controllers/ e middlewares/ novos
+        (auth + error_handler); rotas reduzidas a delegação 1:1 para os controllers,
+        que orquestram os models/services/utils que já existiam
 ```
 
 ### Checklist de validação
@@ -649,7 +650,7 @@ Depois: mesma árvore de diretórios + config/ e middlewares/ novos; rotas conec
 - [x] Relatório segue o template definido nos arquivos de referência
 - [x] Cada finding tem arquivo e linhas exatos
 - [x] Findings ordenados por severidade (CRITICAL → LOW)
-- [x] Mínimo de 5 findings identificados (15)
+- [x] Mínimo de 5 findings identificados (14)
 - [x] Detecção de APIs deprecated incluída (`datetime.utcnow()`)
 - [x] Skill pausa e pede confirmação antes da Fase 3
 
@@ -657,9 +658,10 @@ Depois: mesma árvore de diretórios + config/ e middlewares/ novos; rotas conec
 - [x] Estrutura de diretórios segue padrão MVC (já parcial; pontos corrigidos)
 - [x] Configuração extraída para módulo de config (sem hardcoded)
 - [x] Models criados para abstrair dados (já existiam; hash/serialização corrigidos)
-- [x] Views/Routes separadas para visualização ou roteamento
-- [x] Controllers concentram o fluxo da aplicação
-- [x] Error handling centralizado (exceções específicas + logging)
+- [x] Views/Routes separadas para visualização ou roteamento (rotas reduzidas a delegação 1:1)
+- [x] Controllers concentram o fluxo da aplicação (`controllers/{task,user,report}_controller.py`)
+- [x] Error handling centralizado (`middlewares/error_handler.py`: exceções de domínio + handlers
+      de SQLAlchemyError/HTTPException/Exception)
 - [x] Entry point claro
 - [x] Aplicação inicia sem erros
 - [x] Endpoints originais respondem corretamente

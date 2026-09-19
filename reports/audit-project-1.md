@@ -118,6 +118,11 @@ Description: Lista de status válidos (`"pendente","aprovado","enviado","entregu
 Impact: Risco de inconsistência se a lista precisar mudar em mais de um lugar.
 Recommendation: Extrair para constante/enum compartilhado.
 
+## Deprecated API check
+Checagem da seção 14 do catálogo executada contra o runtime do ambiente (Python 3.12,
+Flask 3.1.1, flask-cors 5.0.1): nenhuma ocorrência encontrada — sem `datetime.utcnow()`,
+sem `collections.Mapping`, sem `@app.before_first_request`. Nenhum finding gerado.
+
 ================================
 Total: 16 findings
 ================================

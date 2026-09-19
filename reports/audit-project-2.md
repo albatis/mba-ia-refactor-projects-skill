@@ -96,6 +96,13 @@ Description: Abreviações de uma/duas letras para nome, email, senha, id do cur
 Impact: Dificulta revisão de segurança — não é óbvio que `cc` é um PAN de cartão.
 Recommendation: Nomear por extenso (`name`, `email`, `password`, `courseId`, `cardNumber`).
 
+## Deprecated API check
+Checagem da seção 14 do catálogo executada contra o runtime do ambiente (Node 18+,
+Express ^4.18.2, sqlite3 ^5.1.6): nenhuma API formalmente deprecated em uso — sem
+`new Buffer()`, `util.isArray`, `url.parse()` ou `crypto.createCipher()`. O driver
+`sqlite3` é callback-based (estilo legado, não deprecated): tratado no finding [HIGH]
+de callback hell, resolvido na Fase 3 promisificando o driver. Nenhum finding próprio gerado.
+
 ================================
 Total: 12 findings
 ================================

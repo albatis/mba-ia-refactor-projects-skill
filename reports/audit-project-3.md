@@ -23,7 +23,7 @@ Stack:   Python + Flask 3.0.0 + Flask-SQLAlchemy 3.1.1
 Files:   12 analyzed | ~1160 lines of code
 
 ## Summary
-CRITICAL: 3 | HIGH: 4 | MEDIUM: 4 | LOW: 4
+CRITICAL: 3 | HIGH: 4 | MEDIUM: 3 | LOW: 4
 
 ## Findings
 
@@ -112,7 +112,7 @@ Impact: Risco de divergência entre as três versões (já visível: apenas a ve
 Recommendation: Reusar `task.to_dict()` e apenas acrescentar os campos extras (`overdue`, `user_name`, `category_name`).
 
 ================================
-Total: 15 findings
+Total: 14 findings
 ================================
 
 Phase 2 complete. Proceed with refactoring (Phase 3)? [y/n]
@@ -129,18 +129,24 @@ task-manager-api/                   (estrutura de camadas já existia; corrigido
 ├── config/
 │   └── settings.py                 # SECRET_KEY/DEBUG/DATABASE_URL/SMTP/TOKEN_MAX_AGE via env
 ├── middlewares/
-│   └── auth.py                     # gera/valida token assinado (itsdangerous); require_auth/require_admin
+│   ├── auth.py                     # gera/valida token assinado (itsdangerous); require_auth/require_admin
+│   └── error_handler.py            # AppError/Validation/Unauthorized/Forbidden/NotFound/Conflict +
+│                                     # handlers de SQLAlchemyError/HTTPException/Exception: um único
+│                                     # ponto define o formato {'error': ...} e o status HTTP
+├── controllers/
+│   ├── task_controller.py          # orquestra o caso de uso de task (validação cruzada de
+│   │                                 # usuário/categoria, persistência, notificação)
+│   ├── user_controller.py          # orquestra usuário/login (unicidade de email, gate de admin
+│   │                                 # em role/active, emissão de token)
+│   └── report_controller.py        # orquestra relatórios e CRUD de categorias (queries agregadas)
 ├── models/
 │   ├── user.py                     # hash com werkzeug; to_dict() sem password; is_admin() simplificado
 │   ├── task.py                     # is_overdue()/validate_* simplificados; to_dict() já inclui "overdue"
 │   └── category.py                 # utcnow() em vez de datetime.utcnow()
-├── routes/
-│   ├── task_routes.py              # process_task_data + constantes reaproveitados; joinedload (sem N+1);
-│   │                                # is_overdue() reaproveitado; except específico; logging
-│   ├── user_routes.py              # validate_email reaproveitado; token assinado; require_admin em
-│   │                                # role/active e DELETE; except específico; logging
-│   └── report_routes.py            # queries agregadas (GROUP BY) em vez de loop; is_valid_color
-│                                    # reaproveitado; require_admin no CRUD de categorias
+├── routes/                         # só transporte HTTP: delegam 1:1 ao controller e aplicam
+│   ├── task_routes.py              # os decorators de autorização; nenhuma regra de negócio
+│   ├── user_routes.py              # nem acesso a ORM aqui
+│   └── report_routes.py            # require_admin no CRUD de categorias e no DELETE /users
 ├── services/
 │   └── notification_service.py     # credenciais via config; conectado a create_task (não é mais morto)
 ├── utils/
@@ -152,7 +158,7 @@ task-manager-api/                   (estrutura de camadas já existia; corrigido
 ## Validation
   ✓ Application boots without errors (python app.py — Flask dev server on :5000)
   ✓ All endpoints respond correctly (5/5 pytest suites green + smoke test manual via curl)
-  ✓ Zero anti-patterns remaining — dos 15 findings da Fase 2, todos foram corrigidos:
+  ✓ Zero anti-patterns remaining — dos 14 findings da Fase 2, todos foram corrigidos:
     - Hash MD5 sem salt → werkzeug generate_password_hash/check_password_hash
     - Senha devolvida pela API → removida de User.to_dict()
     - SECRET_KEY e credenciais SMTP hardcoded → config/settings.py via variáveis de ambiente
@@ -164,7 +170,9 @@ task-manager-api/                   (estrutura de camadas já existia; corrigido
       notifica o usuário atribuído; process_task_data/validate_email/is_valid_color/constantes
       agora são a fonte única de validação)
     - Queries N+1 (tasks, resumo por usuário, contagem por categoria) → joinedload/queries agregadas
-    - except genérico → exceções específicas (SQLAlchemyError) com log da causa real
+    - except genérico → error handler centralizado (middlewares/error_handler.py): os controllers
+      levantam exceções de domínio (ValidationError/NotFoundError/ConflictError/...) e um único
+      handler traduz cada uma em status + corpo JSON, com log da causa real no caso de 500
     - Validação inconsistente de categoria → name e color validados em create e update
     - datetime.utcnow() deprecated → utils.helpers.utcnow() em todos os arquivos afetados
     - Idiomas booleanos verbosos → simplificados para expressão booleana direta
@@ -176,5 +184,8 @@ task-manager-api/                   (estrutura de camadas já existia; corrigido
 
 Observação de design: como este projeto já tinha camadas físicas (models/routes/services/utils),
 a Fase 3 não recriou a estrutura — conectou o que já existia e estava correto (helpers, service de
-notificação) e adicionou apenas o necessário para fechar os achados de segurança (config/, middlewares/).
+notificação) e adicionou apenas as camadas que faltavam: config/ e middlewares/ (auth + error
+handler) para fechar os achados de segurança, e controllers/ para tirar a orquestração de dentro
+das rotas. Sem essa última camada as rotas continuavam acumulando transporte HTTP + regra de
+negócio no mesmo arquivo, que é justamente o finding [HIGH] "lógica de negócio no Route".
 ================================
