@@ -43,11 +43,16 @@ Só execute esta fase depois de uma confirmação explícita e afirmativa do usu
 2. Para cada finding do relatório da Fase 2, aplique o padrão de transformação correspondente do playbook, seguindo as regras de decisão e a ordem de execução recomendada em `mvc-guidelines.md`.
 3. Preserve o contrato externo da API (mesmas rotas, métodos e formato de payload) exceto quando o próprio contrato for o problema de segurança (ex.: endpoint que executa SQL arbitrário deve ser removido/protegido, não preservado).
 4. Se o projeto já tiver alguma separação de camadas, não reescreva do zero — corrija especificamente os pontos identificados na auditoria (camadas mortas, duplicação, acesso direto a dados nas rotas), preservando o que já está correto.
-5. Depois de mover o código, **valide o resultado**:
+5. **Reconfira cada finding no código, não apenas na estrutura.** Mover/isolar código para a camada certa não é, por si só, prova de que um finding foi corrigido. Para cada finding do relatório da Fase 2, depois de aplicar a transformação:
+   - Releia o trecho de código que hoje implementa aquele comportamento no novo local (arquivo:linha reais, não a lembrança da Fase 2).
+   - Compare esse código contra o `Description`/`Impact` original do finding — não contra a `Recommendation` isoladamente. Pergunte: "o comportamento problemático descrito no Impact ainda existe, só que em outro arquivo?" (ex.: uma regra de aprovação que continua sendo `input.startsWith(x)`, um segredo que ainda aparece como literal em algum módulo, uma query que ainda concatena string, mesmo que agora dentro de um Model).
+   - Se o sinal/comportamento do Impact ainda estiver presente, o finding **não** está corrigido — corrija o comportamento de fato (use o padrão correspondente de `refactoring-playbook.md`; para decisões de negócio previsíveis/manipuláveis, ver padrão 13) antes de seguir.
+   - Só é aceitável listar um finding como pendente (em vez de corrigido) quando a correção completa depender de uma decisão de produto fora do escopo da refatoração (ex.: credencial real de um gateway externo que não existe neste ambiente) — e nesse caso a saída da Fase 3 deve dizer isso explicitamente, nunca marcar `Zero anti-patterns remaining`.
+6. Depois de mover e reconferir o código, **valide o resultado**:
    - Instale dependências e suba a aplicação (use o comando documentado no README do projeto, se existir) e confirme que ela inicia sem erro.
    - Rode a suíte de testes automatizada do projeto, se existir (`pytest`, `npm test`, etc.), e/ou faça chamadas manuais aos endpoints principais para confirmar que continuam respondendo como antes.
    - Se algo quebrar, corrija antes de concluir — não entregue uma refatoração que derrubou a aplicação.
-6. Imprima o resultado final exatamente no formato abaixo, com a estrutura de diretórios **real** criada (não um template genérico) e o resultado real da validação:
+7. Imprima o resultado final exatamente no formato abaixo, com a estrutura de diretórios **real** criada (não um template genérico) e o resultado real da validação. A linha `Zero anti-patterns remaining` só pode ser afirmativa se o passo 5 (reconferência por finding) confirmou isso para os 12/N findings — caso contrário, liste os que restaram e por quê, mesmo que a aplicação suba e os testes passem:
 
 ```
 ================================
@@ -63,4 +68,4 @@ PHASE 3: REFACTORING COMPLETE
 ================================
 ```
 
-7. Não faça commit — deixe as mudanças no working tree para o desenvolvedor revisar e commitar.
+8. Não faça commit — deixe as mudanças no working tree para o desenvolvedor revisar e commitar.

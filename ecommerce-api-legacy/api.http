@@ -1,6 +1,6 @@
 @baseUrl = http://localhost:3000
 
-### Checkout - sucesso
+### Checkout - sucesso (cartão de teste aprovado; ver allowlist em src/services/paymentGatewayService.js)
 POST {{baseUrl}}/api/checkout
 Content-Type: application/json
 
@@ -9,10 +9,10 @@ Content-Type: application/json
   "eml": "gui@fullcycle.com.br",
   "pwd": "senhaforte",
   "c_id": 2,
-  "card": "4111222233334444"
+  "card": "4242424242424242"
 }
 
-### Checkout - pagamento recusado
+### Checkout - pagamento recusado (qualquer cartão fora da allowlist, mesmo começando com "4")
 POST {{baseUrl}}/api/checkout
 Content-Type: application/json
 
@@ -21,7 +21,7 @@ Content-Type: application/json
   "eml": "joao@teste.com",
   "pwd": "123",
   "c_id": 1,
-  "card": "5111222233334444"
+  "card": "4111222233334444"
 }
 
 ### Relatório financeiro administrativo (requer chave de admin)
