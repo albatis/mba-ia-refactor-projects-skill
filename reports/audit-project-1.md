@@ -187,3 +187,27 @@ ser introduzidos apenas quando o Controller cresceria demais ou a lógica precis
 fora do contexto HTTP, o que não é o caso aqui. O disparo de notificações (antes 3 `print()` no
 controller) foi isolado em `_notificar_novo_pedido()`.
 ================================
+
+================================
+RE-EXECUÇÃO — Fase 1+2 (skill atualizada com reconferência de sinal por finding)
+================================
+Motivo: mesma correção da skill aplicada nos outros dois projetos (ver audit-project-2.md e
+audit-project-3.md) — Fase 3 agora precisa reconferir o código real de cada finding, não só a
+posição/estrutura, antes de declará-lo corrigido.
+
+Reconferência pontual dos 16 findings originais contra o código atual (`src/config/settings.py`,
+`src/controllers/sistema_controller.py`, `src/models/usuario_model.py`, `src/models/pedido_model.py`,
+`src/models/produto_model.py`, `src/controllers/produto_controller.py`, `src/config/constants.py`,
+`src/views/routes.py`): SQL parametrizado em todas as queries lidas, `/admin/query` removido (não
+existe mais nenhuma rota que execute SQL vindo do cliente), `/health` não devolve mais `SECRET_KEY`,
+`/admin/reset-db` protegido por `require_admin_key`, senha hasheada com `werkzeug` e nunca lida de
+volta em `to_dict`/resposta, validação de estoque no `pedido_model.criar` real (checa e decrementa
+estoque antes de commitar), `DEBUG` lido de `FLASK_DEBUG` (default `false`), `_validar_produto`
+reaproveitada em `criar`/`atualizar`, JOIN único em `_agrupar_pedidos`, sem `print()` residual,
+constantes centralizadas em `constants.py`.
+
+## Nova Auditoria (Fase 1+2)
+CRITICAL: 0 | HIGH: 0 | MEDIUM: 0 | LOW: 0
+Total: 0 findings — nenhuma reconferência encontrou sinal/comportamento do finding original ainda
+presente no código atual. Nenhuma ação de Fase 3 necessária neste projeto nesta rodada.
+================================

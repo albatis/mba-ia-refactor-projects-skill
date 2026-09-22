@@ -90,7 +90,7 @@ async function run() {
             eml: 'gui@fullcycle.com.br',
             pwd: 'senhaforte',
             c_id: 2,
-            card: '4111222233334444'
+            card: '4242424242424242' // cartão de teste aprovado (allowlist do paymentGatewayService)
         }, (body) => {
             assert.match(body, /"msg":"Sucesso"/);
         });
@@ -100,7 +100,7 @@ async function run() {
             eml: 'joao@teste.com',
             pwd: '123',
             c_id: 1,
-            card: '5111222233334444'
+            card: '4111222233334444' // fora da allowlist: antes era aprovado só por começar com "4"
         }, (body) => {
             assert.deepStrictEqual(JSON.parse(body), { erro: 'Pagamento recusado' });
         });

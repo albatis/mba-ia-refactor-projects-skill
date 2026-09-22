@@ -228,6 +228,31 @@ from datetime import datetime, timezone
 criado_em = datetime.now(timezone.utc)
 ```
 
+### 13. Decisão de negócio mock previsível/trivialmente manipulável → sinal não derivável do input do atacante
+Mapeia: *Lógica de negócio dentro do Controller/Route* (checagem adicional de sinal da decisão).
+
+```javascript
+// Antes — aprova qualquer cartão (real ou inventado) que comece com "4":
+// qualquer atacante descobre a regra em uma tentativa.
+function authorize(cardNumber) {
+  const approved = cardNumber.startsWith('4');
+  return { status: approved ? 'PAID' : 'DENIED' };
+}
+
+// Depois — stub explícito, deny-by-default, só aprova números de teste
+// documentados (não é derivável só olhando um prefixo do input):
+const TEST_CARDS_APPROVED = new Set([
+  '4242424242424242', // cartão de teste documentado — ver README
+  '4000056655665556',
+]);
+
+function authorize(cardNumber) {
+  const approved = TEST_CARDS_APPROVED.has(cardNumber);
+  return { status: approved ? 'PAID' : 'DENIED' };
+}
+```
+Isolar essa função num service (padrão 4) continua necessário, mas **não substitui** essa troca de sinal — a extração só resolve a posição do código, não a previsibilidade da regra. Aplique os dois.
+
 ---
 
 ## Ordem de execução recomendada na Fase 3

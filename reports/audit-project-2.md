@@ -155,3 +155,51 @@ ecommerce-api-legacy/
     - Erros de banco silenciosamente ignorados → toda falha propaga para o errorHandler central
     - Nomes ilegíveis (u/e/p/cid/cc) → nomes por extenso em todos os controllers/models
 ================================
+
+================================
+RE-EXECUÇÃO — Fase 1+2+3 (skill atualizada com reconferência de sinal por finding)
+================================
+Motivo: a validação acima marcou "Zero anti-patterns remaining" só com base em a lógica de
+pagamento ter sido isolada em `paymentGatewayService.js` — sem reconferir se o sinal de
+aprovação em si (Impact original: "trivialmente manipulável") tinha mudado. Não tinha: o código
+isolado continuava `cardNumber.startsWith('4')`, aprovando qualquer cartão real ou inventado
+com esse prefixo. A skill (`SKILL.md`, `anti-patterns-catalog.md` item 7, `refactoring-playbook.md`
+padrão 13) foi corrigida para exigir essa reconferência antes de marcar um finding como corrigido.
+
+## Nova Auditoria (Fase 1+2, sobre o código já uma vez refatorado)
+CRITICAL: 0 | HIGH: 1 | MEDIUM: 0 | LOW: 1
+
+### [HIGH] Sinal de aprovação de pagamento continua previsível/manipulável (isolamento não resolveu o Impact original)
+File: src/services/paymentGatewayService.js:10-14 (antes da correção)
+Description: `authorize()` decidia por `cardNumber.startsWith('4')` — a Fase 3 anterior só moveu essa
+função de `AppManager.js` para um service dedicado, sem trocar o sinal.
+Impact: Idêntico ao finding original — qualquer atacante aprova o próprio pagamento usando um
+cartão (real ou inventado) começando com "4".
+Recommendation: Padrão 13 do playbook — allowlist de cartões de teste documentados, deny-by-default.
+
+### [LOW] `console.log` direto usado como logging de evento de negócio
+File: src/services/paymentGatewayService.js:11 (antes da correção)
+Description: Chamada direta de `console.log` para registrar a autorização, sem logger configurável
+(catálogo item 16) — nunca tinha sido reportado porque a auditoria original focou na exposição do
+PAN, não na ausência de logger.
+Impact: Sem níveis de log/estrutura, impossível desligar ou redirecionar em produção.
+Recommendation: Logger mínimo centralizado.
+
+Total: 2 findings
+
+## Fase 3 — aplicada (confirmação do usuário em 2026-09-21)
+- `src/services/paymentGatewayService.js`: sinal trocado para `APPROVED_TEST_CARDS` (Set fechado de
+  cartões de teste), deny-by-default; `console.log` trocado por `src/utils/logger.js` (novo, sem
+  dependência externa).
+- `tests/test-endpoints.js` e `api.http`: cartão do teste de sucesso trocado para `4242424242424242`
+  (allowlist); teste de recusa trocado para `4111222233334444` — mesmo começando com "4", agora é
+  negado, provando que o bypass antigo foi fechado.
+
+## Validation (reconferida no código, não só na estrutura)
+  ✓ Application boots without errors (node src/app.js — "LMS API rodando na porta 3000...")
+  ✓ All endpoints respond correctly (7/7 em npm test)
+  ✓ Zero anti-patterns remaining — reconferido lendo `paymentGatewayService.js` após a mudança:
+    nenhum `startsWith` remanescente; `grep -n "APPROVED_TEST_CARDS" src/services/paymentGatewayService.js`
+    confirma o novo sinal; smoke test manual via curl confirma `4242424242424242` → PAID e
+    `4999999999999999` (começa com "4", fora da allowlist) → DENIED.
+================================

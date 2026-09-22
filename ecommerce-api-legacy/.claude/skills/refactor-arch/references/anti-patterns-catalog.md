@@ -36,6 +36,7 @@ Regra de severidade (mesma do desafio): **CRITICAL** = falha grave de arquitetur
 ### 7. Lógica de negócio dentro do Controller/Route (HIGH)
 **Sinal:** cálculos, regras de aprovação/estoque/pagamento, ou orquestração multi-etapas escritos diretamente dentro da função de rota, sem uma camada de serviço/domínio intermediária.
 **Por quê:** viola a separação Model-View-Controller — o Controller deveria orquestrar, não conter a regra.
+**Checagem adicional — sinal da decisão, não só a posição do código:** quando a regra é uma decisão de aprovação/autorização/segurança (ex.: aprovar pagamento, liberar acesso, conceder desconto), avalie *separadamente* se o sinal usado para decidir é trivialmente previsível ou controlável pelo próprio atacante (ex.: `cardNumber.startsWith('4')`, `if nome == "admin"`, `if token.length > 5`). Isso vale mesmo que o código já esteja isolado num service/model — isolar a posição não resolve um sinal de decisão adivinhável. Se esse sub-problema existir, registre-o explicitamente no `Impact` do finding e a `Recommendation` deve exigir também trocar o sinal (não só isolar o código) — ver padrão 13 do `refactoring-playbook.md`.
 
 ### 8. Acoplamento forte / ausência de injeção de dependência (HIGH)
 **Sinal:** módulo que cria sua própria conexão de banco, cliente HTTP ou dependência externa diretamente dentro da função de negócio, em vez de recebê-la como parâmetro/serviço injetado.

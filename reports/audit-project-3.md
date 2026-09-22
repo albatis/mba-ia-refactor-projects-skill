@@ -189,3 +189,53 @@ handler) para fechar os achados de segurança, e controllers/ para tirar a orque
 das rotas. Sem essa última camada as rotas continuavam acumulando transporte HTTP + regra de
 negócio no mesmo arquivo, que é justamente o finding [HIGH] "lógica de negócio no Route".
 ================================
+
+================================
+RE-EXECUÇÃO — Fase 1+2+3 (skill atualizada com reconferência de sinal por finding)
+================================
+Motivo: mesma correção da skill aplicada em ecommerce-api-legacy (ver audit-project-2.md) — Fase 3
+agora precisa reconferir o código real de cada finding antes de declará-lo corrigido, não só a
+posição/estrutura. Reconferindo os 14 findings originais contra o código atual: os 12 findings de
+segurança/estrutura (hash MD5→werkzeug, senha exposta, SECRET_KEY, token falso, autorização
+ausente, lógica duplicada, N+1, validação de categoria, datetime.utcnow(), booleanos verbosos,
+imports não usados, serialização) seguem genuinamente corrigidos — comportamento confirmado no
+código, não só a posição. A conexão do `utils/helpers.py` (antes código morto) ao fluxo real de
+`task_controller.py` teve um efeito colateral não auditado: ela tornou ativo um `except:` genérico
+e um `datetime.utcnow()` que já existiam ali, mas nunca tinham sido reportados como finding porque,
+na Fase 2 original, o arquivo só entrou na análise como "código morto a ser conectado" — nenhuma
+Fase 2 anterior auditou o conteúdo interno de `helpers.py` linha a linha.
+
+## Nova Auditoria (Fase 1+2, sobre o código já uma vez refatorado)
+CRITICAL: 0 | HIGH: 0 | MEDIUM: 1 | LOW: 1
+
+### [MEDIUM] `except:` genérico dentro de helper que virou código ativo
+File: utils/helpers.py:20,23 (`parse_date`), utils/helpers.py:60 (`process_task_data`, antes da correção)
+Description: `parse_date`/`process_task_data` engolem qualquer exceção com `except:` nu; a Fase 3
+anterior conectou essas funções a `controllers/task_controller.py:49,91` sem revisar esse ponto.
+Impact: Bug real de parsing (ex.: `TypeError` inesperado) seria mascarado como "Data/Prioridade
+inválida" em vez de aparecer no log/500, mesmo com o error handler central já existindo.
+Recommendation: Capturar `(ValueError, TypeError)` explicitamente.
+
+### [LOW] `datetime.utcnow()` (deprecated) em código morto não removido
+File: utils/helpers.py:41 (`log_action`, antes da correção)
+Description: `log_action`, `format_date`, `sanitize_string`, `generate_id`, `calculate_percentage`
+nunca eram chamadas por nenhum controller/route (confirmado via grep) — código morto que a Fase 3
+anterior não removeu ao revisar o arquivo.
+Impact: Baixo (não executa em runtime), mas é ruído e uma delas usa uma API já deprecated.
+Recommendation: Remover; nenhuma tinha uso real planejado.
+
+Total: 2 findings
+
+## Fase 3 — aplicada (confirmação do usuário em 2026-09-21)
+- `utils/helpers.py`: `except:` trocado por `except (ValueError, TypeError):` em `parse_date` e em
+  `process_task_data`; funções mortas (`log_action`, `format_date`, `sanitize_string`, `generate_id`,
+  `calculate_percentage`) removidas.
+
+## Validation (reconferida no código, não só na estrutura)
+  ✓ Application boots without errors
+  ✓ All endpoints respond correctly (5/5 pytest — `venv/bin/pytest -q tests/test_endpoints.py`)
+  ✓ Zero anti-patterns remaining — reconferido: `grep -n "except:" utils/helpers.py` vazio;
+    `grep -n "datetime.utcnow()" utils/helpers.py` só ocorre dentro do comentário, não em código
+    executado; `validate_email`/`parse_date`/`is_valid_color`/`process_task_data` (as únicas
+    funções realmente usadas) preservadas e com os mesmos call sites.
+================================
